@@ -14,6 +14,47 @@ const HEIGHT = canvas.height;
 
 let currentTerrain = [];
 
+// Simple 1D value-noise-based generator used for Perlin/Simplex-like terrain
+function makeNoise1D(seed = 1) {
+  function hash(x) {
+    // Deterministic pseudo-random hash
+    const s = Math.sin(x * 127.1 + seed * 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function smoothstep(t) {
+    return t * t * (3 - 2 * t);
+  }
+
+  function valueNoise(x) {
+    const x0 = Math.floor(x);
+    const x1 = x0 + 1;
+    const t = x - x0;
+    const u = smoothstep(t);
+    const v0 = hash(x0);
+    const v1 = hash(x1);
+    return lerp(v0, v1, u);
+  }
+
+  return function fbm(x, octaves = 4, lacunarity = 2, gain = 0.5) {
+    let amplitude = 1;
+    let frequency = 1;
+    let sum = 0;
+    let norm = 0;
+    for (let i = 0; i < octaves; i++) {
+      sum += amplitude * valueNoise(x * frequency);
+      norm += amplitude;
+      amplitude *= gain;
+      frequency *= lacunarity;
+    }
+    return sum / norm; // normalized to roughly [0,1]
+  };
+}
+
 /** Utility to generate a terrain array of given size in different modes */
 function generateTerrain(n = 80, mode = "linear") {
   if (mode === "random") {
@@ -22,6 +63,25 @@ function generateTerrain(n = 80, mode = "linear") {
       { length: n },
       () => Math.floor(Math.random() * 300) + 20,
     );
+  }
+
+  // Noise-based modes
+  if (mode === "perlin" || mode === "simplex") {
+    const seed = Math.random() * 1000;
+    const noise = makeNoise1D(seed);
+    const heights = [];
+    const baseScale = mode === "perlin" ? 0.08 : 0.05;
+    const octaves = mode === "perlin" ? 4 : 5;
+    const gain = mode === "perlin" ? 0.5 : 0.6;
+    const lacunarity = mode === "perlin" ? 2.0 : 2.2;
+
+    for (let i = 0; i < n; i++) {
+      const x = i * baseScale;
+      const v = noise(x, octaves, lacunarity, gain); // in ~[0,1]
+      const height = 40 + v * 260; // map to [40,300]
+      heights.push(height);
+    }
+    return heights;
   }
 
   // Start/end heights for interpolated modes
@@ -202,7 +262,7 @@ function drawOwnership(heights, pse, nse) {
   });
 }
 
-/** Draw the ridge of the terrain; sharp for linear/random, smooth for cosine */
+/** Draw the ridge of the terrain; sharp for random/linear, smooth for others */
 function drawTerrainRidge(heights, mode = "linear") {
   const barWidth = Math.floor(WIDTH / heights.length);
   const points = heights.map((h, i) => ({
@@ -216,7 +276,7 @@ function drawTerrainRidge(heights, mode = "linear") {
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
 
-  if (mode === "cosine") {
+  if (mode !== "random" && mode !== "linear") {
     // Smooth (quadratic) curve between points
     for (let i = 0; i < points.length - 1; i++) {
       const curr = points[i];
