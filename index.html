@@ -8,6 +8,14 @@
   <body>
     <h1>Terrain Generator</h1>
     <button id="generate">Generate</button>
+    <label>
+      Terrain generation:
+      <select id="generation-mode">
+        <option value="random">Random</option>
+        <option value="linear" selected>Linear interpolate</option>
+        <option value="cosine">Cosine interpolate</option>
+      </select>
+    </label>
     <div>
       <label>
         <input type="checkbox" id="toggle-terrain" checked />

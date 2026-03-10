@@ -1,5 +1,6 @@
 const canvas = document.getElementById("terrain");
 const generateBtn = document.getElementById("generate");
+const generationModeSelect = document.getElementById("generation-mode");
 const terrainToggle = document.getElementById("toggle-terrain");
 const valleysToggle = document.getElementById("toggle-valleys");
 const peaksToggle = document.getElementById("toggle-peaks");
@@ -13,9 +14,38 @@ const HEIGHT = canvas.height;
 
 let currentTerrain = [];
 
-/** Utility to generate a random terrain array of given size */
-function generateTerrain(n = 80) {
-  return Array.from({ length: n }, () => Math.floor(Math.random() * 300) + 20);
+/** Utility to generate a terrain array of given size in different modes */
+function generateTerrain(n = 80, mode = "linear") {
+  if (mode === "random") {
+    // Independent random heights
+    return Array.from(
+      { length: n },
+      () => Math.floor(Math.random() * 300) + 20,
+    );
+  }
+
+  // Start/end heights for interpolated modes
+  const start = Math.floor(Math.random() * 300) + 20;
+  const end = Math.floor(Math.random() * 300) + 20;
+  const heights = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+
+    let factor;
+    if (mode === "cosine") {
+      // Cosine interpolation factor
+      factor = (1 - Math.cos(t * Math.PI)) / 2;
+    } else {
+      // Linear interpolation factor
+      factor = t;
+    }
+
+    const jitter = Math.floor(Math.random() * 30) - 15;
+    const value = Math.round(start * (1 - factor) + end * factor + jitter);
+    heights.push(Math.max(20, value));
+  }
+
+  return heights;
 }
 
 /** Draw the terrain as green bars on canvas */
@@ -229,18 +259,40 @@ function renderTerrainLayers(terrain) {
   if (ridgeToggle.checked) {
     drawTerrainRidge(terrain);
   }
+
   drawOwnership(terrain, pse, nse);
 }
 
 /** Main event: redraw all features on new random terrain */
 generateBtn.addEventListener("click", () => {
-  currentTerrain = generateTerrain(40);
+  const mode = generationModeSelect?.value || "linear";
+  currentTerrain = generateTerrain(40, mode);
   renderTerrainLayers(currentTerrain);
 });
 
-terrainToggle.addEventListener("change", () => renderTerrainLayers(currentTerrain));
-valleysToggle.addEventListener("change", () => renderTerrainLayers(currentTerrain));
-peaksToggle.addEventListener("change", () => renderTerrainLayers(currentTerrain));
+terrainToggle.addEventListener("change", () =>
+  renderTerrainLayers(currentTerrain),
+);
+valleysToggle.addEventListener("change", () =>
+  renderTerrainLayers(currentTerrain),
+);
+peaksToggle.addEventListener("change", () =>
+  renderTerrainLayers(currentTerrain),
+);
 nseToggle.addEventListener("change", () => renderTerrainLayers(currentTerrain));
 pseToggle.addEventListener("change", () => renderTerrainLayers(currentTerrain));
-ridgeToggle.addEventListener("change", () => renderTerrainLayers(currentTerrain));
+ridgeToggle.addEventListener("change", () =>
+  renderTerrainLayers(currentTerrain),
+);
+generationModeSelect.addEventListener("change", () => {
+  const mode = generationModeSelect.value || "linear";
+  currentTerrain = generateTerrain(40, mode);
+  renderTerrainLayers(currentTerrain);
+});
+
+// Automatically generate terrain and render on first page load
+document.addEventListener("DOMContentLoaded", () => {
+  const mode = generationModeSelect.value || "linear";
+  currentTerrain = generateTerrain(40, mode);
+  renderTerrainLayers(currentTerrain);
+});
