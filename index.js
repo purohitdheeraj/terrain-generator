@@ -202,8 +202,8 @@ function drawOwnership(heights, pse, nse) {
   });
 }
 
-/** Draw a smoothed line following the top ridge of the bars */
-function drawTerrainRidge(heights) {
+/** Draw the ridge of the terrain; sharp for linear/random, smooth for cosine */
+function drawTerrainRidge(heights, mode = "linear") {
   const barWidth = Math.floor(WIDTH / heights.length);
   const points = heights.map((h, i) => ({
     x: i * barWidth + barWidth / 2,
@@ -211,9 +211,13 @@ function drawTerrainRidge(heights) {
   }));
   ctx.strokeStyle = "hsl(0 0% 0%)";
   ctx.lineWidth = 3;
+  if (points.length < 2) return;
+
   ctx.beginPath();
-  if (points.length > 1) {
-    ctx.moveTo(points[0].x, points[0].y);
+  ctx.moveTo(points[0].x, points[0].y);
+
+  if (mode === "cosine") {
+    // Smooth (quadratic) curve between points
     for (let i = 0; i < points.length - 1; i++) {
       const curr = points[i];
       const next = points[i + 1];
@@ -222,7 +226,13 @@ function drawTerrainRidge(heights) {
       ctx.quadraticCurveTo(curr.x, curr.y, cx, cy);
     }
     ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+  } else {
+    // Sharp, piecewise-linear ridge (for random/linear modes)
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
   }
+
   ctx.stroke();
 }
 
@@ -257,7 +267,8 @@ function renderTerrainLayers(terrain) {
   }
 
   if (ridgeToggle.checked) {
-    drawTerrainRidge(terrain);
+    const mode = generationModeSelect?.value || "linear";
+    drawTerrainRidge(terrain, mode);
   }
 
   drawOwnership(terrain, pse, nse);
