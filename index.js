@@ -4,6 +4,7 @@ import { findPSE } from "./pse.js";
 
 const canvas = document.getElementById("terrain");
 const generateBtn = document.getElementById("generate");
+const simulateBtn = document.getElementById("simulate");
 const generationModeSelect = document.getElementById("generation-mode");
 const terrainToggle = document.getElementById("toggle-terrain");
 const valleysToggle = document.getElementById("toggle-valleys");
@@ -20,6 +21,93 @@ const MIN_HEIGHT = 80;
 const MAX_HEIGHT = 340;
 
 let currentTerrain = [];
+
+/** Ms per column during simulate (lower = faster sweep). */
+const SIM_MS_PER_COLUMN = 42;
+let simulateRafId = 0;
+let simulating = false;
+
+function stopSimulation() {
+  if (simulateRafId) {
+    cancelAnimationFrame(simulateRafId);
+    simulateRafId = 0;
+  }
+  simulating = false;
+  if (simulateBtn) simulateBtn.disabled = false;
+}
+
+/**
+ * Draw only the first `count` bars of `fullHeights` (same layout as full terrain).
+ * Optional scan line at the next column for a “generating” feel.
+ */
+function renderSimFrame(fullHeights, count, mode) {
+  const total = fullHeights.length;
+  if (!total) return;
+
+  ctx.clearRect(0, 0, WIDTH, HEIGHT);
+  const barWidth = Math.floor(WIDTH / total);
+
+  if (terrainToggle.checked) {
+    for (let i = 0; i < count; i++) {
+      const h = fullHeights[i];
+      ctx.fillStyle = `hsl(${110 + h / 8} 50% 45%)`;
+      ctx.fillRect(i * barWidth, HEIGHT - h, barWidth - 2, h);
+    }
+  }
+
+  if (ridgeToggle.checked && count >= 2) {
+    drawTerrainRidge(fullHeights.slice(0, count), mode, total);
+  }
+
+  // Scan line + soft “unrevealed” tint to the right
+  const x = count * barWidth;
+  if (count < total) {
+    ctx.fillStyle = "rgba(0,0,0,0.06)";
+    ctx.fillRect(x, 0, WIDTH - x, HEIGHT);
+    ctx.strokeStyle = "hsla(200 90% 45% / 0.85)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + 1, 0);
+    ctx.lineTo(x + 1, HEIGHT);
+    ctx.stroke();
+  }
+}
+
+function startSimulation() {
+  const mode = generationModeSelect?.value || "linear";
+  const n = 40;
+  stopSimulation();
+  simulating = true;
+  if (simulateBtn) simulateBtn.disabled = true;
+
+  const fullHeights = generateTerrain(n, mode);
+  currentTerrain = fullHeights;
+
+  let visible = 0;
+  let lastT = performance.now();
+
+  function tick(now) {
+    if (!simulating) return;
+
+    while (visible < n && now - lastT >= SIM_MS_PER_COLUMN) {
+      lastT += SIM_MS_PER_COLUMN;
+      visible++;
+    }
+
+    renderSimFrame(fullHeights, visible, mode);
+
+    if (visible >= n) {
+      stopSimulation();
+      renderTerrainLayers(fullHeights);
+      return;
+    }
+
+    simulateRafId = requestAnimationFrame(tick);
+  }
+
+  renderSimFrame(fullHeights, 0, mode);
+  simulateRafId = requestAnimationFrame(tick);
+}
 
 /** Utility to generate a terrain array of given size in different modes */
 function generateTerrain(n = 80, mode = "linear") {
@@ -182,8 +270,15 @@ function drawOwnership(heights, pse, nse) {
   });
 }
 
-function drawTerrainRidge(heights, mode = "linear") {
-  const barWidth = Math.floor(WIDTH / heights.length);
+/**
+ * @param {number[]} heights segment to draw
+ * @param {string} mode
+ * @param {number} [totalBarCount] use full terrain width when simulating a prefix
+ */
+function drawTerrainRidge(heights, mode = "linear", totalBarCount = null) {
+  if (heights.length < 2) return;
+  const total = totalBarCount ?? heights.length;
+  const barWidth = Math.floor(WIDTH / total);
   const points = heights.map((h, i) => ({
     x: i * barWidth + barWidth / 2,
     y: HEIGHT - h,
@@ -248,30 +343,40 @@ function renderTerrainLayers(terrain) {
     drawTerrainRidge(terrain, mode);
   }
 
-  drawOwnership(terrain, pse, nse);
+  // drawOwnership(terrain, pse, nse);
 }
 
 generateBtn.addEventListener("click", () => {
+  stopSimulation();
   const mode = generationModeSelect?.value || "linear";
   currentTerrain = generateTerrain(40, mode);
   renderTerrainLayers(currentTerrain);
 });
 
-terrainToggle.addEventListener("change", () =>
-  renderTerrainLayers(currentTerrain),
-);
-valleysToggle.addEventListener("change", () =>
-  renderTerrainLayers(currentTerrain),
-);
-peaksToggle.addEventListener("change", () =>
-  renderTerrainLayers(currentTerrain),
-);
-nseToggle.addEventListener("change", () => renderTerrainLayers(currentTerrain));
-pseToggle.addEventListener("change", () => renderTerrainLayers(currentTerrain));
-ridgeToggle.addEventListener("change", () =>
-  renderTerrainLayers(currentTerrain),
-);
+simulateBtn?.addEventListener("click", () => {
+  startSimulation();
+});
+
+terrainToggle.addEventListener("change", () => {
+  if (!simulating) renderTerrainLayers(currentTerrain);
+});
+valleysToggle.addEventListener("change", () => {
+  if (!simulating) renderTerrainLayers(currentTerrain);
+});
+peaksToggle.addEventListener("change", () => {
+  if (!simulating) renderTerrainLayers(currentTerrain);
+});
+nseToggle.addEventListener("change", () => {
+  if (!simulating) renderTerrainLayers(currentTerrain);
+});
+pseToggle.addEventListener("change", () => {
+  if (!simulating) renderTerrainLayers(currentTerrain);
+});
+ridgeToggle.addEventListener("change", () => {
+  if (!simulating) renderTerrainLayers(currentTerrain);
+});
 generationModeSelect.addEventListener("change", () => {
+  stopSimulation();
   const mode = generationModeSelect.value || "linear";
   currentTerrain = generateTerrain(40, mode);
   renderTerrainLayers(currentTerrain);
@@ -282,3 +387,5 @@ document.addEventListener("DOMContentLoaded", () => {
   currentTerrain = generateTerrain(40, mode);
   renderTerrainLayers(currentTerrain);
 });
+
+window.addEventListener("beforeunload", stopSimulation);
