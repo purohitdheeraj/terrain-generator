@@ -1,3 +1,7 @@
+import { makeNoise1D } from "./noise.js";
+import { findNSE } from "./nse.js";
+import { findPSE } from "./pse.js";
+
 const canvas = document.getElementById("terrain");
 const generateBtn = document.getElementById("generate");
 const generationModeSelect = document.getElementById("generation-mode");
@@ -12,60 +16,21 @@ const ctx = canvas.getContext("2d");
 const WIDTH = canvas.width;
 const HEIGHT = canvas.height;
 
+const MIN_HEIGHT = 80;
+const MAX_HEIGHT = 340;
+
 let currentTerrain = [];
-
-// Simple 1D value-noise-based generator used for Perlin/Simplex-like terrain
-function makeNoise1D(seed = 1) {
-  function hash(x) {
-    // Deterministic pseudo-random hash
-    const s = Math.sin(x * 127.1 + seed * 311.7) * 43758.5453;
-    return s - Math.floor(s);
-  }
-
-  function lerp(a, b, t) {
-    return a + (b - a) * t;
-  }
-
-  function smoothstep(t) {
-    return t * t * (3 - 2 * t);
-  }
-
-  function valueNoise(x) {
-    const x0 = Math.floor(x);
-    const x1 = x0 + 1;
-    const t = x - x0;
-    const u = smoothstep(t);
-    const v0 = hash(x0);
-    const v1 = hash(x1);
-    return lerp(v0, v1, u);
-  }
-
-  return function fbm(x, octaves = 4, lacunarity = 2, gain = 0.5) {
-    let amplitude = 1;
-    let frequency = 1;
-    let sum = 0;
-    let norm = 0;
-    for (let i = 0; i < octaves; i++) {
-      sum += amplitude * valueNoise(x * frequency);
-      norm += amplitude;
-      amplitude *= gain;
-      frequency *= lacunarity;
-    }
-    return sum / norm; // normalized to roughly [0,1]
-  };
-}
 
 /** Utility to generate a terrain array of given size in different modes */
 function generateTerrain(n = 80, mode = "linear") {
   if (mode === "random") {
-    // Independent random heights
     return Array.from(
       { length: n },
-      () => Math.floor(Math.random() * 300) + 20,
+      () =>
+        Math.floor(Math.random() * (MAX_HEIGHT - MIN_HEIGHT)) + MIN_HEIGHT,
     );
   }
 
-  // Noise-based modes
   if (mode === "perlin" || mode === "simplex") {
     const seed = Math.random() * 1000;
     const noise = makeNoise1D(seed);
@@ -77,38 +42,31 @@ function generateTerrain(n = 80, mode = "linear") {
 
     for (let i = 0; i < n; i++) {
       const x = i * baseScale;
-      const v = noise(x, octaves, lacunarity, gain); // in ~[0,1]
-      const height = 40 + v * 260; // map to [40,300]
-      heights.push(height);
+      const v = noise(x, octaves, lacunarity, gain);
+      heights.push(MIN_HEIGHT + v * (MAX_HEIGHT - MIN_HEIGHT));
     }
     return heights;
   }
 
-  // Start/end heights for interpolated modes
-  const start = Math.floor(Math.random() * 300) + 20;
-  const end = Math.floor(Math.random() * 300) + 20;
+  const start =
+    Math.floor(Math.random() * (MAX_HEIGHT - MIN_HEIGHT)) + MIN_HEIGHT;
+  const end =
+    Math.floor(Math.random() * (MAX_HEIGHT - MIN_HEIGHT)) + MIN_HEIGHT;
   const heights = [];
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1);
-
-    let factor;
-    if (mode === "cosine") {
-      // Cosine interpolation factor
-      factor = (1 - Math.cos(t * Math.PI)) / 2;
-    } else {
-      // Linear interpolation factor
-      factor = t;
-    }
-
+    let factor =
+      mode === "cosine"
+        ? (1 - Math.cos(t * Math.PI)) / 2
+        : t;
     const jitter = Math.floor(Math.random() * 30) - 15;
     const value = Math.round(start * (1 - factor) + end * factor + jitter);
-    heights.push(Math.max(20, value));
+    heights.push(Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, value)));
   }
 
   return heights;
 }
 
-/** Draw the terrain as green bars on canvas */
 function drawTerrain(heights) {
   ctx.clearRect(0, 0, WIDTH, HEIGHT);
   const barWidth = Math.floor(WIDTH / heights.length);
@@ -119,7 +77,6 @@ function drawTerrain(heights) {
   });
 }
 
-/** Find valleys (local minima) in the terrain */
 function findValleys(arr) {
   return arr.reduce(
     (valleys, height, i, array) =>
@@ -133,7 +90,6 @@ function findValleys(arr) {
   );
 }
 
-/** Highlight valleys in blue on the terrain */
 function drawValleys(heights, valleyIndices) {
   const barWidth = Math.floor(WIDTH / heights.length);
   valleyIndices.forEach((i) => {
@@ -142,7 +98,6 @@ function drawValleys(heights, valleyIndices) {
   });
 }
 
-/** Find peaks (local maxima) in the terrain */
 function findPeaks(arr) {
   return arr.reduce(
     (peaks, height, i, array) =>
@@ -156,7 +111,6 @@ function findPeaks(arr) {
   );
 }
 
-/** Highlight peaks in red on the terrain */
 function drawPeaks(heights, peakIndices) {
   const barWidth = Math.floor(WIDTH / heights.length);
   peakIndices.forEach((i) => {
@@ -165,7 +119,6 @@ function drawPeaks(heights, peakIndices) {
   });
 }
 
-/** Draw lines from each bar to its Next Smaller Element (NSE) */
 function drawNSE(heights, nse) {
   const barWidth = Math.floor(WIDTH / heights.length);
   ctx.strokeStyle = "hsl(52 100% 50%)";
@@ -184,31 +137,6 @@ function drawNSE(heights, nse) {
   });
 }
 
-/** Return array of Next Smaller Element indices for each element */
-function findNSE(arr) {
-  const stack = [],
-    ans = Array(arr.length).fill(-1);
-  for (let i = arr.length - 1; i >= 0; i--) {
-    while (stack.length && arr[stack[stack.length - 1]] >= arr[i]) stack.pop();
-    if (stack.length) ans[i] = stack[stack.length - 1];
-    stack.push(i);
-  }
-  return ans;
-}
-
-/** Return array of Previous Smaller Element indices for each element */
-function findPSE(arr) {
-  const stack = [],
-    ans = Array(arr.length).fill(-1);
-  for (let i = 0; i < arr.length; i++) {
-    while (stack.length && arr[stack[stack.length - 1]] > arr[i]) stack.pop();
-    if (stack.length) ans[i] = stack[stack.length - 1];
-    stack.push(i);
-  }
-  return ans;
-}
-
-/** Draw lines from each bar to its Previous Smaller Element (PSE) */
 function drawPSE(heights, pse) {
   const barWidth = Math.floor(WIDTH / heights.length);
   ctx.strokeStyle = "hsl(280 70% 60%)";
@@ -227,10 +155,6 @@ function drawPSE(heights, pse) {
   });
 }
 
-/**
- * Sum of minimum values over all subarrays of given array.
- * @returns {number} The sum for all subarrays.
- */
 function findSumSubArray(arr) {
   const nse = findNSE(arr);
   const pse = findPSE(arr);
@@ -241,10 +165,6 @@ function findSumSubArray(arr) {
   }, 0);
 }
 
-/**
- * Highlight the "ownership" of range where a bar is the minimum.
- * Each bar owns a rectangle between its PSE+1 and NSE-1, at its height.
- */
 function drawOwnership(heights, pse, nse) {
   const barWidth = Math.floor(WIDTH / heights.length);
   const colors = heights.map(
@@ -262,7 +182,6 @@ function drawOwnership(heights, pse, nse) {
   });
 }
 
-/** Draw the ridge of the terrain; sharp for random/linear, smooth for others */
 function drawTerrainRidge(heights, mode = "linear") {
   const barWidth = Math.floor(WIDTH / heights.length);
   const points = heights.map((h, i) => ({
@@ -277,7 +196,6 @@ function drawTerrainRidge(heights, mode = "linear") {
   ctx.moveTo(points[0].x, points[0].y);
 
   if (mode !== "random" && mode !== "linear") {
-    // Smooth (quadratic) curve between points
     for (let i = 0; i < points.length - 1; i++) {
       const curr = points[i];
       const next = points[i + 1];
@@ -287,7 +205,6 @@ function drawTerrainRidge(heights, mode = "linear") {
     }
     ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
   } else {
-    // Sharp, piecewise-linear ridge (for random/linear modes)
     for (let i = 1; i < points.length; i++) {
       ctx.lineTo(points[i].x, points[i].y);
     }
@@ -334,7 +251,6 @@ function renderTerrainLayers(terrain) {
   drawOwnership(terrain, pse, nse);
 }
 
-/** Main event: redraw all features on new random terrain */
 generateBtn.addEventListener("click", () => {
   const mode = generationModeSelect?.value || "linear";
   currentTerrain = generateTerrain(40, mode);
@@ -361,7 +277,6 @@ generationModeSelect.addEventListener("change", () => {
   renderTerrainLayers(currentTerrain);
 });
 
-// Automatically generate terrain and render on first page load
 document.addEventListener("DOMContentLoaded", () => {
   const mode = generationModeSelect.value || "linear";
   currentTerrain = generateTerrain(40, mode);
